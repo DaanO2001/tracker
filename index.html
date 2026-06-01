@@ -155,6 +155,30 @@ header{
 .sugg .opt{font-weight:700;font-size:13px;color:#e0e0e0;margin-bottom:2px;}
 .sugg .kc{font-family:'JetBrains Mono';font-size:11px;color:var(--gray);font-weight:700;}
 
+/* maaltijd override (vandaag aanpassen) */
+.aangepast{font-family:'JetBrains Mono';font-size:8px;font-weight:800;letter-spacing:.5px;color:#000;background:var(--accent);padding:2px 6px;border-radius:6px;vertical-align:middle;margin-left:6px;text-transform:uppercase;}
+.override-box{border-top:1px solid var(--line);margin-top:12px;padding-top:10px;}
+.override-row{display:flex;gap:8px;margin-bottom:10px;}
+.ov-field{flex:1;display:flex;flex-direction:column;gap:4px;}
+.ov-field label{font-family:'JetBrains Mono';font-size:9px;font-weight:800;letter-spacing:.5px;color:var(--gray);text-transform:uppercase;}
+.ov-field input{background:#000;border:1px solid var(--line);color:var(--accent);font-family:'JetBrains Mono';font-weight:800;font-size:15px;padding:8px 10px;border-radius:8px;outline:none;width:100%;}
+.ov-field input:focus{border-color:var(--accent);}
+.override-btns{display:flex;gap:8px;}
+.ov-save{flex:1;background:var(--accent);border:none;color:#000;font-family:'JetBrains Mono';font-weight:800;font-size:10px;letter-spacing:1px;padding:10px;cursor:pointer;border-radius:8px;text-transform:uppercase;}
+.ov-clear{flex:1;background:transparent;border:1px solid var(--gray-dim);color:var(--gray);font-family:'JetBrains Mono';font-weight:700;font-size:10px;letter-spacing:1px;padding:10px;cursor:pointer;border-radius:8px;text-transform:uppercase;}
+
+/* extra's */
+.extra-item{display:flex;align-items:center;justify-content:space-between;background:var(--card);border:1px solid var(--card-edge);border-radius:var(--r-sm);padding:12px 14px;margin-bottom:9px;}
+.extra-name{font-weight:800;font-size:14px;}
+.extra-kc{font-family:'JetBrains Mono';font-size:11px;color:var(--accent);font-weight:700;margin-top:2px;}
+.extra-del{background:transparent;border:1px solid #5a2222;color:#ff6b6b;width:30px;height:30px;border-radius:8px;cursor:pointer;font-size:13px;flex-shrink:0;}
+.extra-add-box{display:flex;flex-wrap:wrap;gap:8px;background:#0a0a0a;border:2px dashed var(--accent-dim);border-radius:var(--r-sm);padding:12px;}
+.extra-add-box input{background:#000;border:1px solid var(--line);color:#fff;font-family:'Archivo',sans-serif;font-size:13px;padding:9px 10px;border-radius:8px;outline:none;}
+.extra-add-box input:focus{border-color:var(--accent);}
+.extra-add-box #exName{flex:1 1 100%;}
+.extra-add-box #exKcal,.extra-add-box #exEiwit{flex:1;min-width:0;}
+.extra-add{flex:1 1 100%;background:var(--accent);border:none;color:#000;font-family:'JetBrains Mono';font-weight:800;font-size:11px;letter-spacing:1px;padding:11px;cursor:pointer;border-radius:8px;text-transform:uppercase;}
+
 /* ---------- WEEKEND ---------- */
 /* ---------- WORKOUT ---------- */
 .progress-head{border:2px solid var(--accent);padding:14px 16px;margin-bottom:0;background:#0a0a0a;display:flex;align-items:center;justify-content:space-between;}
@@ -368,6 +392,8 @@ input,button{outline-offset:2px;}
       </div>
       <div class="section-label">— VOEDINGSSCHEMA · TIK VOOR KCAL</div>
       <div id="meals"></div>
+      <div class="section-label">— EXTRA GEGETEN VANDAAG</div>
+      <div id="extras"></div>
     </div>
   </section>
 
@@ -573,7 +599,7 @@ let EXERCISES = JSON.parse(JSON.stringify(DEFAULT_EXERCISES));
 
 /* ---------- STATE ---------- */
 const today = () => new Date().toISOString().slice(0,10);
-let state = { date: today(), mode:'week', meals:{}, sets:{}, warmup:false };
+let state = { date: today(), mode:'week', meals:{}, sets:{}, warmup:false, overrides:{}, extras:[] };
 let weightLogs = [];
 let dayLogs = {};   // { '2026-05-31': {workout_done:true, rest_day:false}, ... }
 const memStore = { progress:{}, weights:[], schema:null, days:{} };
@@ -612,7 +638,7 @@ async function loadAll(){
   if (USE_SUPABASE){
     try{
       const {data:prog} = await sb.from('daily_progress').select('*').eq('date', state.date).single();
-      if (prog){ state.mode=prog.mode||'week'; state.meals=prog.meals||{}; state.sets=prog.sets||{}; state.warmup=!!prog.warmup; }
+      if (prog){ state.mode=prog.mode||'week'; state.meals=prog.meals||{}; state.sets=prog.sets||{}; state.warmup=!!prog.warmup; state.overrides=prog.overrides||{}; state.extras=prog.extras||[]; }
       const {data:w} = await sb.from('weight_logs').select('*').order('date',{ascending:false}).limit(30);
       if (w) weightLogs = w.map(r=>({date:r.date, weight:Number(r.weight)}));
       const {data:days} = await sb.from('day_logs').select('*').order('date',{ascending:false}).limit(120);
@@ -620,15 +646,17 @@ async function loadAll(){
     }catch(err){ console.warn(err); }
   } else {
     const p = memStore.progress[state.date];
-    if (p){ state.mode=p.mode; state.meals=p.meals; state.sets=p.sets; state.warmup=!!p.warmup; }
+    if (p){ state.mode=p.mode; state.meals=p.meals; state.sets=p.sets; state.warmup=!!p.warmup; state.overrides=p.overrides||{}; state.extras=p.extras||[]; }
     weightLogs = [...memStore.weights];
     dayLogs = JSON.parse(JSON.stringify(memStore.days));
   }
   if (!state.sets) state.sets={};
+  if (!state.overrides) state.overrides={};
+  if (!state.extras) state.extras=[];
   EXERCISES.forEach(e=>{ if(!state.sets[e.id]) state.sets[e.id]=[false,false,false]; });
 }
 async function saveProgress(){
-  const payload = {date:state.date, mode:state.mode, meals:state.meals, sets:state.sets, warmup:state.warmup};
+  const payload = {date:state.date, mode:state.mode, meals:state.meals, sets:state.sets, warmup:state.warmup, overrides:state.overrides, extras:state.extras};
   if (USE_SUPABASE){
     try{ await sb.from('daily_progress').upsert(payload,{onConflict:'date'}); flash('OPGESLAGEN'); }
     catch(err){ flash('OPSLAAN MISLUKT'); }
@@ -684,39 +712,107 @@ $('#brandLogo').src = BRAND_LOGO;
 
 
 /* ---------- RENDER MEALS ---------- */
+function mealKcal(m){ const o=state.overrides[m.id]; return (o&&o.kcal!=null)?o.kcal:(m.kcalN||0); }
+function mealEiwit(m){ const o=state.overrides[m.id]; return (o&&o.eiwit!=null)?o.eiwit:(m.eiwitN||0); }
+
 function renderMeals(){
   const wrap=$('#meals');
   wrap.innerHTML = MEALS.map(m=>{
     const done=state.meals[m.id];
+    const o=state.overrides[m.id]||{};
+    const isOver = o.kcal!=null;
     const sugg = m.sugg.map(s=>`<div class="sugg"><div class="opt">${s.opt}</div><div class="kc">${s.kc}</div></div>`).join('');
+    const shownKcal = isOver ? ('± '+o.kcal+' KCAL'+(o.eiwit!=null?' · '+o.eiwit+'g eiwit':'')) : m.kcal;
     return `<div class="meal ${done?'done':''}" data-meal-card="${m.id}">
       <div class="meal-head">
         <div class="checkbox" data-check="${m.id}"><svg viewBox="0 0 24 24"><polyline points="4,13 9,18 20,5"/></svg></div>
         <div class="meal-body" data-mtoggle="${m.id}">
           <div class="meal-time">${m.time}</div>
-          <div class="meal-title">${m.title}</div>
+          <div class="meal-title">${m.title}${isOver?' <span class="aangepast">aangepast</span>':''}</div>
           <div class="meal-desc">${m.desc}</div>
         </div>
         <div class="meal-chev" data-mtoggle="${m.id}">+</div>
       </div>
       <div class="meal-info"><div class="meal-info-inner">
-        <div class="kcal-badge">DOEL: ${m.kcal}</div>
+        <div class="kcal-badge">${isOver?'VANDAAG':'DOEL'}: ${shownKcal}</div>
         <div class="sugg-h">ZO KOM JE ERAAN:</div>
         ${sugg}
+        <div class="override-box">
+          <div class="sugg-h" style="margin-top:6px">VANDAAG ANDERS GEGETEN? VUL IN:</div>
+          <div class="override-row">
+            <div class="ov-field"><label>KCAL</label><input type="number" inputmode="numeric" data-ovk="${m.id}" value="${o.kcal!=null?o.kcal:''}" placeholder="${m.kcalN||0}"></div>
+            <div class="ov-field"><label>EIWIT (g) · optioneel</label><input type="number" inputmode="numeric" data-ove="${m.id}" value="${o.eiwit!=null?o.eiwit:''}" placeholder="${m.eiwitN||0}"></div>
+          </div>
+          <div class="override-btns">
+            <button class="ov-save" data-ovsave="${m.id}">VANDAAG OPSLAAN</button>
+            ${isOver?`<button class="ov-clear" data-ovclear="${m.id}">TERUG NAAR STANDAARD</button>`:''}
+          </div>
+        </div>
       </div></div>
     </div>`;
   }).join('');
+
   wrap.querySelectorAll('[data-check]').forEach(el=>{
     el.onclick = e=>{ e.stopPropagation(); const id=el.dataset.check; state.meals[id]=!state.meals[id]; renderMeals(); renderMacros(); saveProgress(); };
   });
   wrap.querySelectorAll('[data-mtoggle]').forEach(el=>{
     el.onclick = ()=> el.closest('.meal').classList.toggle('open');
   });
+  wrap.querySelectorAll('[data-ovsave]').forEach(b=>{
+    b.onclick = e=>{ e.stopPropagation(); const id=b.dataset.ovsave;
+      const kv=document.querySelector(`[data-ovk="${id}"]`).value.trim();
+      const ev=document.querySelector(`[data-ove="${id}"]`).value.trim();
+      if (kv===''){ flash('VUL EERST KCAL IN'); return; }
+      state.overrides[id]={kcal:Math.max(0,Math.round(+kv))};
+      if (ev!=='') state.overrides[id].eiwit=Math.max(0,Math.round(+ev));
+      renderMeals(); renderMacros(); reopenMeal(id); saveProgress(); flash('MAALTIJD AANGEPAST VOOR VANDAAG');
+    };
+  });
+  wrap.querySelectorAll('[data-ovclear]').forEach(b=>{
+    b.onclick = e=>{ e.stopPropagation(); const id=b.dataset.ovclear; delete state.overrides[id];
+      renderMeals(); renderMacros(); reopenMeal(id); saveProgress(); flash('TERUG NAAR STANDAARD');
+    };
+  });
+  renderExtras();
+}
+function reopenMeal(id){ const c=document.querySelector(`[data-meal-card="${id}"]`); if(c) c.classList.add('open'); }
+
+function renderExtras(){
+  const wrap=$('#extras'); if(!wrap) return;
+  const items = state.extras.map((x,i)=>`
+    <div class="extra-item">
+      <div class="extra-info">
+        <div class="extra-name">${escHtml(x.name||'Extra')}</div>
+        <div class="extra-kc">${x.kcal} kcal${x.eiwit!=null?' · '+x.eiwit+'g eiwit':''}</div>
+      </div>
+      <button class="extra-del" data-exdel="${i}">✕</button>
+    </div>`).join('');
+  wrap.innerHTML = items + `
+    <div class="extra-add-box">
+      <input type="text" id="exName" placeholder="Bijv. appel" maxlength="40">
+      <input type="number" id="exKcal" inputmode="numeric" placeholder="kcal">
+      <input type="number" id="exEiwit" inputmode="numeric" placeholder="eiwit (optie)">
+      <button class="extra-add" id="exAdd">+ TOEVOEGEN</button>
+    </div>`;
+  wrap.querySelectorAll('[data-exdel]').forEach(b=>{
+    b.onclick=()=>{ state.extras.splice(+b.dataset.exdel,1); renderExtras(); renderMacros(); saveProgress(); };
+  });
+  $('#exAdd').onclick=()=>{
+    const name=$('#exName').value.trim()||'Extra';
+    const kc=$('#exKcal').value.trim();
+    const ei=$('#exEiwit').value.trim();
+    if (kc===''){ flash('VUL KCAL IN VOOR DE EXTRA'); return; }
+    const item={name, kcal:Math.max(0,Math.round(+kc))};
+    if (ei!=='') item.eiwit=Math.max(0,Math.round(+ei));
+    state.extras.push(item);
+    renderExtras(); renderMacros(); saveProgress(); flash('EXTRA TOEGEVOEGD');
+  };
 }
 
 function renderMacros(){
   let kcal=0, eiwit=0;
-  MEALS.forEach(m=>{ if(state.meals[m.id]){ kcal+=(m.kcalN||0); eiwit+=(m.eiwitN||0); } });
+  MEALS.forEach(m=>{ if(state.meals[m.id]){ kcal+=mealKcal(m); eiwit+=mealEiwit(m); } });
+  (state.extras||[]).forEach(x=>{ kcal+=(x.kcal||0); eiwit+=(x.eiwit||0); });
   const kg=$('#kcalGoal'), eg=$('#eiwitGoal');
   if (kg) kg.textContent=KCAL_DOEL;
   if (eg) eg.textContent=EIWIT_DOEL;
@@ -1029,7 +1125,7 @@ $('#logWeight').onclick = async ()=>{
 /* ---------- RESET ---------- */
 $('#resetDay').onclick = async ()=>{
   Object.values(timers).forEach(t=>clearInterval(t)); timers={}; timeLeft={};
-  state.meals={}; state.warmup=false; EXERCISES.forEach(e=> state.sets[e.id]=[false,false,false]);
+  state.meals={}; state.warmup=false; state.overrides={}; state.extras=[]; EXERCISES.forEach(e=> state.sets[e.id]=[false,false,false]);
   renderMeals(); renderMacros(); renderExercises(); applyWarmup(); await saveProgress(); await saveDayLog(); flash('DAG GERESET');
 };
 
@@ -1042,6 +1138,8 @@ async function checkNewDay(){
     state.date = now;
     state.meals = {};
     state.warmup = false;
+    state.overrides = {};
+    state.extras = [];
     EXERCISES.forEach(e=> state.sets[e.id]=[false,false,false]);
     state.mode = 'week';
     calView = null;               // kalender terug naar huidige maand
